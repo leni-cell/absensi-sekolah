@@ -155,6 +155,21 @@
   </section>
 
   <button id="btnSubmit" onclick="submitAbsensi()" class="w-full bg-brass text-ink rounded-xl py-3.5 font-display font-semibold active:scale-[.98] transition-transform shadow-sm">Kirim Absensi</button>
+
+  <!-- RIWAYAT -->
+  <section class="bg-white rounded-2xl border border-black/5 shadow-sm p-4">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-display font-semibold">Riwayat Absensi (HP ini)</h2>
+      <span id="riwayatCount" class="text-xs text-black/40">0 data</span>
+    </div>
+    <p id="riwayatEmpty" class="text-xs text-black/40 py-3 text-center">Belum ada absensi tercatat di HP ini.</p>
+    <div id="riwayatList" class="space-y-2 hidden max-h-72 overflow-y-auto"></div>
+    <div class="flex gap-2 mt-3">
+      <button onclick="downloadCSV()" class="flex-1 bg-navy text-white rounded-xl py-2 text-sm font-medium">Unduh CSV</button>
+      <button onclick="clearRiwayat()" class="flex-1 bg-black/5 text-alpha rounded-xl py-2 text-sm font-medium">Hapus Riwayat</button>
+    </div>
+    <p class="text-[11px] text-black/35 mt-2">Riwayat ini tersimpan di browser HP ini saja (localStorage), cocok karena satu HP dipakai untuk scan semua siswa bergantian.</p>
+  </section>
 </main>
 
 <script>
@@ -176,6 +191,66 @@
   let html5QrCode = null;
   let scanning = false;
 
+  const STORAGE_KEY = 'absensiRecords';
+
+  function loadRecords() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+    catch { return []; }
+  }
+
+  function saveRecord(record) {
+    const records = loadRecords();
+    records.push(record);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); } catch {}
+    renderRiwayat();
+  }
+
+  function clearRiwayat() {
+    if (!confirm('Hapus semua riwayat absensi di HP ini?')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    renderRiwayat();
+  }
+
+  function renderRiwayat() {
+    const records = loadRecords();
+    document.getElementById('riwayatCount').textContent = `${records.length} data`;
+    const listEl = document.getElementById('riwayatList');
+    const emptyEl = document.getElementById('riwayatEmpty');
+    if (!records.length) {
+      listEl.classList.add('hidden');
+      emptyEl.classList.remove('hidden');
+      return;
+    }
+    emptyEl.classList.add('hidden');
+    listEl.classList.remove('hidden');
+    listEl.innerHTML = records.slice().reverse().map(r => `
+      <div class="border border-black/10 rounded-lg px-3 py-2 text-sm">
+        <div class="flex justify-between font-medium">
+          <span>${r.nama} (${r.nis})</span>
+          <span>${r.status}</span>
+        </div>
+        <div class="text-xs text-black/50">${r.tanggal}, ${r.waktu} — ${r.keterangan}</div>
+      </div>
+    `).join('');
+  }
+
+  function downloadCSV() {
+    const records = loadRecords();
+    if (!records.length) { alert('Belum ada data untuk diunduh.'); return; }
+    const header = ['No','NIS','Nama','Status','Tanggal','Waktu','Keterangan','Latitude','Longitude'];
+    const rows = records.map((r, i) => [i + 1, r.nis, r.nama, r.status, r.tanggal, r.waktu, r.keterangan, r.lat, r.lng]);
+    const csv = [header, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `daftar-hadir-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   function pad(n) { return n.toString().padStart(2, '0'); }
 
   function tick() {
@@ -193,6 +268,7 @@
   }
   tick();
   setInterval(tick, 1000);
+  renderRiwayat();
 
   function lookupStudent() {
     const nisInput = document.getElementById('nis');
@@ -310,6 +386,11 @@
     const waktu = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
     const tanggal = `${HARI[now.getDay()]}, ${now.getDate()} ${BULAN[now.getMonth()]} ${now.getFullYear()}`;
     const keterangan = (now.getHours() * 60 + now.getMinutes()) <= BATAS_MENIT ? 'Hadir Tepat Waktu' : 'Terlambat';
+
+    saveRecord({
+      nis, nama, status: state.status, tanggal, waktu, keterangan,
+      lat: state.lokasi.lat.toFixed(6), lng: state.lokasi.lng.toFixed(6)
+    });
 
     alert(
       'Absensi berhasil dikirim (simulasi)\n\n' +
